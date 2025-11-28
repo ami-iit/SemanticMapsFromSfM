@@ -3,6 +3,7 @@ import numpy as np
 from colmap_utils import qvec2rotmat   # your function
 from colmap_utils import read_model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+import pickle
 
 
 def get_world_from_cam(img):
@@ -191,8 +192,8 @@ def integrate_depth_frame(
     u = torch.arange(W, device=device)
     v = torch.arange(H, device=device)
     uu, vv = torch.meshgrid(u, v, indexing="xy")   # (W,H) if indexing="xy"
-    uu = uu.T  # to (H,W)
-    vv = vv.T
+    # uu = uu.T  # to (H,W)
+    # vv = vv.T
 
     # valid depth mask
     D = depth
@@ -353,12 +354,15 @@ def build_occupancy_voxels(
 
 if __name__ == "__main__":
 
-    depth_path = '/home/mtoso/Documents/Code/AMI_Collab/2DSemanticMap/dept_maps.npz'
-    detph = np.load(depth_path, allow_pickle=True)
+    root_dir = "/home/mtoso/Documents/Code/SemanticMapsFromSfM/"
+    depth_path = 'saved_dictionary.pkl'
+    
+    with open(depth_path, 'rb') as f:
+        depth = pickle.load(f)
 
     origin, dims, vs, hits, frees, p_occ, occ = build_occupancy_voxels(
-        '/home/mtoso/Documents/Code/AMI_Collab/2DSemanticMap/Data/colmap_model',
-        detph,
+        root_dir + '/Data/colmap_model',
+        depth,
         voxel_size=0.05,
         device=device
     )

@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import torch.nn.functional as F
 from colmap_utils import read_model, qvec2rotmat
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+import pickle
 
 
 # Code to generate the depth map
@@ -196,10 +197,11 @@ def compute_image_depth_scale(depth_rel_i, img, points3D, H, W, device="cuda", m
 
 def main():
 
+    root_dir = "/home/mtoso/Documents/Code/SemanticMapsFromSfM/"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    colmap_model_path = "/home/mtoso/Documents/Code/AMI_Collab/2DSemanticMap/Data/colmap_model"
-    images_dir = "/home/mtoso/Documents/Code/AMI_Collab/2DSemanticMap/Data/images" 
-    output_dir = "/home/mtoso/Documents/Code/AMI_Collab/2DSemanticMap/Data/depth_maps"
+    colmap_model_path = root_dir + "/Data/colmap_model"
+    images_dir = root_dir + "Data/images" 
+    output_dir = root_dir + "Data/depth_maps"
     cameras, images, points3D = read_model(colmap_model_path)
 
     visualize = False
@@ -258,8 +260,9 @@ def main():
         depth_metric_maps[image_id] = depth_metric_i.cpu()
 
         print(f"Image {img.name}: scale = {s_i:.4f}, depth_metric shape = {depth_metric_i.shape}")
-    np.savez('dept_maps', depth_metric_maps)
-
+    # np.savez('dept_maps', depth_metric_maps) # It is a pain to read the dict, better use the pickle
+    with open('saved_dictionary.pkl', 'wb') as f:
+        pickle.dump(depth_metric_maps, f)
 
 
 if __name__ == "__main__":
