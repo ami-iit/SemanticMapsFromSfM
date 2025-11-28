@@ -7,7 +7,7 @@ from PIL import Image
 import pycolmap  # <-- new
 
 from semantic_fusion import assign_semantics_to_points
-from map_builder import build_semantic_map, colorize_semantic_map
+from Old.map_builder import build_semantic_map, colorize_semantic_map
 
 
 def parse_args():
