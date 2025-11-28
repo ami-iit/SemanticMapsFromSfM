@@ -271,6 +271,11 @@ def integrate_all_frames(
         cam = cameras[img.camera_id]
         integrate_depth_frame(depth, img, cam, origin, dims, vs, hits, frees, device=device)
 
+    np.save('origin', origin)
+    np.save('dims', dims)
+    np.save('hits', hits)
+    np.save('frees', frees)
+
     return origin, dims, vs, hits, frees
 
 
@@ -325,10 +330,13 @@ def build_occupancy_voxels(
     hits, frees = init_occupancy(dims, device=device)
 
     # 4) Integrate each depth frame
+
+    print('Working towards registering {} images...'.format(len(images.items())))
+
     for image_id, img in images.items():
         if image_id not in depth_metric_maps:
             continue
-
+        print('registering image {}'.format(image_id))
         depth = depth_metric_maps[image_id]  # (H,W) torch, metric
         cam = cameras[img.camera_id]
 
@@ -346,6 +354,14 @@ def build_occupancy_voxels(
 
     # 5) Convert hits/frees into occupancy probabilities
     p_occ, occ = occupancy_from_counts(hits, frees, occ_thresh=0.5)
+
+    np.save('origin', origin)
+    np.save('dims', dims)
+    np.save('vs', vs)
+    np.save('hits', hits)
+    np.save('frees', frees)
+    np.save('p_occ', p_occ)
+    np.save('occ', occ)
 
     return origin, dims, vs, hits, frees, p_occ, occ
 
