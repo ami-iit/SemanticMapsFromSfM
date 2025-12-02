@@ -3,6 +3,7 @@ import numpy as np
 from colmap_utils import qvec2rotmat   # your function
 from colmap_utils import read_model
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+import pickle
 
 
 def get_world_from_cam(img):
