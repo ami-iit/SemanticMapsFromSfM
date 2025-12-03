@@ -48,18 +48,8 @@ def compute_bounds_from_points(points3d_dict, margin=0.5):
         xyz_min, xyz_max: (3,) torch.float32
     """
     xyz = np.stack([p.xyz for p in points3d_dict.values()], axis=0)  # (M,3)
-    xyz_mean = xyz.mean(axis=0)
-    xyz_std = xyz.std(axis=0)
-
-    mask = np.abs(xyz - xyz_mean) <= 2.0 * xyz_std
-    mask = np.all(mask, axis=1)
-
-    xyz_min = torch.from_numpy(xyz[mask].min(axis=0)).float() - margin
-    xyz_max = torch.from_numpy(xyz[mask].max(axis=0)).float() + margin
-
-
-    show_occ_scatter(xyz[mask])
-
+    xyz_min = torch.from_numpy(xyz.min(axis=0)).float() - margin
+    xyz_max = torch.from_numpy(xyz.max(axis=0)).float() + margin
     return xyz_min, xyz_max
 
 
@@ -264,7 +254,7 @@ def integrate_depth_frame(
 
 def integrate_all_frames(
     depth_metric_maps, cameras, images, points3D,
-    voxel_size=0.05, device="cuda"
+    voxel_size=0.05, device="cpu"
 ):
     # 1) Bounds from COLMAP sparse points
     xyz_min, xyz_max = compute_bounds_from_points(points3D)
@@ -282,11 +272,6 @@ def integrate_all_frames(
         cam = cameras[img.camera_id]
         integrate_depth_frame(depth, img, cam, origin, dims, vs, hits, frees, device=device)
 
-    np.save('origin', origin)
-    np.save('dims', dims)
-    np.save('hits', hits)
-    np.save('frees', frees)
-
     return origin, dims, vs, hits, frees
 
 
@@ -303,8 +288,7 @@ def occupancy_from_counts(hits, frees, occ_thresh=0.5):
 def build_occupancy_voxels(
     colmap_model_path: str,
     depth_metric_maps: dict,
-    output_path: str,
-    voxel_size: float = 0.25,
+    voxel_size: float = 0.05,
     device: str = "cuda"
     ):
     """
@@ -316,7 +300,6 @@ def build_occupancy_voxels(
         colmap_model_path: path to the COLMAP model folder (with cameras/images/points3D).
         depth_metric_maps: dict[image_id -> torch.Tensor(H,W)] of metric depths (meters).
                            image_id must match keys in the COLMAP `images` dict.
-        output_path: path where to store the voxelized occupancy grid (as numpy arrays).
         voxel_size: size of each voxel in meters (isotropic).
         device: "cuda" or "cpu"
 
@@ -343,14 +326,10 @@ def build_occupancy_voxels(
     hits, frees = init_occupancy(dims, device=device)
 
     # 4) Integrate each depth frame
-
-    print('Working towards registering {} images...'.format(len(images.items())))
-
     for image_id, img in images.items():
-        print('wip...')
         if image_id not in depth_metric_maps:
             continue
-        print('registering image {}'.format(image_id))
+
         depth = depth_metric_maps[image_id]  # (H,W) torch, metric
         cam = cameras[img.camera_id]
 
@@ -367,117 +346,27 @@ def build_occupancy_voxels(
         )
 
     # 5) Convert hits/frees into occupancy probabilities
-    _, occ = occupancy_from_counts(hits, frees, occ_thresh=0.5)
-
-    np.save(output_path + '/origin', origin)
-    np.save(output_path + '/dims', dims)
-    np.save(output_path + '/vs', vs)
-    np.save(output_path + '/occ', occ)
-
-    return origin, dims, vs, occ
+    p_occ, occ = occupancy_from_counts(hits, frees, occ_thresh=0.5)
 
 
-def occ_to_points(
-    origin: np.ndarray,
-    dims: np.ndarray,
-    vs: float,
-    occ: np.ndarray,
-    max_points = None,
-    ) -> np.ndarray:
-    """
-    Convert a 3D occupancy grid into world-space point cloud.
 
-    Args:
-        origin: (3,) world coords of voxel (0,0,0)
-        dims: (3,) number of voxels in each dimension [Nx, Ny, Nz]
-        vs: voxel size
-        occ: (Nx, Ny, Nz) occupancy values: 1 = occupied, -1 = free
-        max_points: optional random subsampling budget
+    return origin, dims, vs, hits, frees, p_occ, occ
 
-    Returns:
-        points_w: (M,3) world coordinates of voxel centers
-    """
-    occ = np.asarray(occ)
-    origin = np.asarray(origin, dtype=np.float32)
-    dims = np.asarray(dims, dtype=np.int32)
-    assert occ.shape == tuple(dims), f"occ.shape {occ.shape} != dims {tuple(dims)}"
-    idxs = np.argwhere(occ == 1)  # (M,3) indices (ix, iy, iz)
-    if idxs.shape[0] == 0:
-        return np.zeros((0, 3), dtype=np.float32)
-
-    if max_points is not None and idxs.shape[0] > max_points:
-        perm = np.random.permutation(idxs.shape[0])
-        idxs = idxs[perm[:max_points]]
-
-    # Voxel center: origin + (idx + 0.5) * vs
-    centers = (idxs.astype(np.float32) + 0.5) * vs
-    points_w = origin[None, :] + centers
-    return points_w
-
-
-def plot3D(
-    pts: np.ndarray,
-    point_size: float = 1.0,
-):
-    """
-    Quick 3D scatter of a 3D pointcloud using matplotlib.
-    """
-    import matplotlib.pyplot as plt
-
-    xs, ys, zs = pts[:, 0], pts[:, 1], pts[:, 2]
-
-    fig = plt.figure()
-    ax = fig.add_subplot(111, projection="3d")
-
-    ax.scatter(xs, ys, zs, s=point_size)
-
-    ax.set_xlabel("X")
-    ax.set_ylabel("Y")
-    ax.set_zlabel("Z")
-    ax.set_title("Voxel Representation")
-
-    # Equal aspect ratio
-    max_range = np.array(
-        [xs.max()-xs.min(), ys.max()-ys.min(), zs.max()-zs.min()]
-    ).max() / 2.0
-    mid_x = (xs.max()+xs.min()) * 0.5
-    mid_y = (ys.max()+ys.min()) * 0.5
-    mid_z = (zs.max()+zs.min()) * 0.5
-    ax.set_xlim(mid_x - max_range, mid_x + max_range)
-    ax.set_ylim(mid_y - max_range, mid_y + max_range)
-    ax.set_zlim(mid_z - max_range, mid_z + max_range)
-
-    plt.show()
 
 
 if __name__ == "__main__":
 
-    import pickle
-    root_dir = '/home/mtoso/Documents/Code/AMI_Collab/2DSemanticMap/'
-
-    depth_path = root_dir + 'saved_dictionary.pkl'
-    output_path = root_dir + '/Data/output'
-
+    root_dir = "/home/mtoso/Documents/Code/SemanticMapsFromSfM/"
+    depth_path = 'saved_dictionary.pkl'
+    
     with open(depth_path, 'rb') as f:
         depth = pickle.load(f)
 
-    # depth_path = '/home/mtoso/Documents/Code/AMI_Collab/2DSemanticMap/dept_maps.npz'
-    # detph = np.load(depth_path, allow_pickle=True)
-
-    origin, dims, vs, occ = build_occupancy_voxels(
-        '/home/mtoso/Documents/Code/AMI_Collab/2DSemanticMap/Data/colmap_model',
+    origin, dims, vs, hits, frees, p_occ, occ = build_occupancy_voxels(
+        root_dir + '/Data/colmap_model',
         depth,
-        output_path,
         voxel_size=0.05,
         device=device
     )
-    origin = np.load(output_path + '/origin.npy')
-    dims = np.load(output_path + '/dims.npy')
-    vs = np.load(output_path + '/vs.npy')
-    occ = np.load(output_path + '/occ.npy')
-
-    show_occ_scatter(origin, dims, vs, occ)
-
-    points = occ_to_points(origin, dims, vs, occ)
 
     print('pippo')
